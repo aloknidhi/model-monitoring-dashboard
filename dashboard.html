@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Monitoring Dashboard — Personal AI Brain</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 24px; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+  .badge { background: #3b82f6; color: #fff; padding: 4px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .kpi { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; }
+  .kpi .label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .kpi .value { font-size: 1.75rem; font-weight: 700; color: #f8fafc; }
+  .kpi .delta { font-size: 0.85rem; margin-top: 4px; }
+  .delta.up { color: #22c55e; }
+  .delta.down { color: #ef4444; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 24px; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; }
+  .card h3 { font-size: 0.95rem; color: #cbd5e1; margin-bottom: 16px; font-weight: 600; }
+  .error-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .error-table th { text-align: left; font-size: 0.8rem; color: #94a3b8; padding: 8px; border-bottom: 1px solid #334155; }
+  .error-table td { font-size: 0.85rem; color: #e2e8f0; padding: 8px; border-bottom: 1px solid #334155; }
+  .error-table tr:hover { background: #2d3748; }
+  .refresh-btn { background: #3b82f6; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+  .refresh-btn:hover { background: #2563eb; }
+  .muted { color: #64748b; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>Model Monitoring Dashboard</h1>
+    <div class="badge">Personal AI Brain</div>
+  </div>
+  <button class="refresh-btn" onclick="loadData()">Refresh</button>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi">
+    <div class="label">Total Requests</div>
+    <div class="value" id="totalRequests">-</div>
+    <div class="delta" id="totalRequestsDelta"></div>
+  </div>
+  <div class="kpi">
+    <div class="label">Error Rate</div>
+    <div class="value" id="errorRate">-</div>
+    <div class="delta down" id="errorRateDelta"></div>
+  </div>
+  <div class="kpi">
+    <div class="label">Avg Latency</div>
+    <div class="value" id="avgLatency">-</div>
+    <div class="delta" id="avgLatencyDelta">ms</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Estimated Cost</div>
+    <div class="value" id="estimatedCost">-</div>
+    <div class="delta">USD / 24h</div>
+  </div>
+  <div class="kpi">
+    <div class="label">Total Tokens</div>
+    <div class="value" id="totalTokens">-</div>
+    <div class="delta"></div>
+  </div>
+  <div class="kpi">
+    <div class="label">P95 Latency</div>
+    <div class="value" id="p95Latency">-</div>
+    <div class="delta">ms</div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="card">
+    <h3>Requests by Model</h3>
+    <canvas id="modelChart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Requests Over Time (24h)</h3>
+    <canvas id="hourlyChart"></canvas>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Recent Errors</h3>
+  <table class="error-table" id="errorTable">
+    <thead>
+      <tr><th>Time</th><th>Model</th><th>Provider</th><th>Latency</th><th>Error</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<p class="muted" style="margin-top:24px;">Data refreshes on demand. Backend: /monitoring/metrics</p>
+
+<script>
+const API_BASE = '/monitoring';
+
+let modelChart, hourlyChart;
+
+function fmtNum(n) {
+  return new Intl.NumberFormat('en-US').format(n);
+}
+function fmtMoney(n) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 6, maximumFractionDigits: 6 }).format(n);
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadData() {
+  const res = await fetch(`${API_BASE}/metrics?hours=24`);
+  const m = await res.json();
+
+  // KPIs
+  document.getElementById('totalRequests').textContent = fmtNum(m.total_requests);
+  document.getElementById('errorRate').textContent = m.error_rate_percent.toFixed(2) + '%';
+  document.getElementById('avgLatency').textContent = fmtNum(m.avg_latency_ms);
+  document.getElementById('estimatedCost').textContent = fmtMoney(m.estimated_cost_usd);
+  document.getElementById('totalTokens').textContent = fmtNum(m.total_tokens);
+  document.getElementById('p95Latency').textContent = fmtNum(m.p95_latency_ms);
+
+  // Model chart
+  const modelLabels = m.requests_by_model.map(r => r.model);
+  const modelData = m.requests_by_model.map(r => r.count);
+  if (modelChart) modelChart.destroy();
+  modelChart = new Chart(document.getElementById('modelChart'), {
+    type: 'doughnut',
+    data: {
+      labels: modelLabels,
+      datasets: [{ data: modelData, backgroundColor: ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'] }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#cbd5e1' } } } }
+  });
+
+  // Hourly chart
+  const hourLabels = m.requests_by_hour.map(r => r.hour.slice(11, 16));
+  const hourData = m.requests_by_hour.map(r => r.count);
+  if (hourlyChart) hourlyChart.destroy();
+  hourlyChart = new Chart(document.getElementById('hourlyChart'), {
+    type: 'line',
+    data: {
+      labels: hourLabels,
+      datasets: [{ label: 'Requests', data: hourData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', tension: 0.3, fill: true }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { color: '#94a3b8', font: { size: 10 } } }, y: { ticks: { color: '#94a3b8', font: { size: 10 } }, beginAtZero: true } }, plugins: { legend: { display: false } } }
+  });
+
+  // Errors table
+  const tbody = document.querySelector('#errorTable tbody');
+  tbody.innerHTML = '';
+  for (const e of m.recent_errors) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${fmtTime(e.timestamp)}</td><td>${e.model}</td><td>${e.provider}</td><td>${e.latency_ms}ms</td><td style="color:#fca5a5; font-size:0.8rem">${e.error_message || '-'}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+loadData();
+setInterval(loadData, 30000);
+</script>
+</body>
+</html>
