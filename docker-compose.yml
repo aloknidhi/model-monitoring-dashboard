@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # ── PostgreSQL (stores inference events) ──────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: mm-db
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=ai_user
+      - POSTGRES_PASSWORD=secure_password
+      - POSTGRES_DB=personal_ai_brain
+    volumes:
+      - mm_postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - mm-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_user -d personal_ai_brain"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Monitoring backend (FastAPI) ──────────────────────────────────
+  monitoring:
+    build:
+      context: ./monitoring/backend
+      dockerfile: Dockerfile
+    container_name: mm-monitoring
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://ai_user:secure_password@db:5432/personal_ai_brain
+    volumes:
+      - ./monitoring/backend:/app
+    working_dir: /app
+    command: uvicorn main:app --host 0.0.0.0 --port 8001
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - mm-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/monitoring/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Dashboard (static HTML + Chart.js, served by Nginx) ────────────
+  dashboard:
+    image: nginx:alpine
+    container_name: mm-dashboard
+    ports:
+      - "8080:80"
+    volumes:
+      - ./dashboard.html:/usr/share/nginx/html/index.html:ro
+    depends_on:
+      - monitoring
+    networks:
+      - mm-network
+    restart: unless-stopped
+
+volumes:
+  mm_postgres_data:
+    driver: local
+
+networks:
+  mm-network:
+    driver: bridge
